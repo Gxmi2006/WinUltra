@@ -230,6 +230,7 @@ class PrivacyWatch
                 if (h != null) h();
             }, null, -1, false);
         }
+        StartCameraMonitor();
     }
 
     // Names, values and subkeys anywhere below; REG_NOTIFY_THREAD_AGNOSTIC so any thread can re-arm it.
@@ -238,6 +239,120 @@ class PrivacyWatch
         RegNotifyChangeKeyValue(key.Handle.DangerousGetHandle(), true, 0x1 | 0x4 | 0x10000000, ev.SafeWaitHandle.DangerousGetHandle(), true);
     }
 
+    // ---- live detection (Windows 11 25H2 stopped updating the registry records reliably)
+    [DllImport("mfplat.dll")] static extern int MFStartup(int version, int flags);
+    [DllImport("mfsensorgroup.dll")] static extern int MFCreateSensorActivityMonitor(IMFSensorActivitiesReportCallback callback, out IMFSensorActivityMonitor monitor);
+    static readonly object liveLock = new object();
+    static List<uint> cameraPids = new List<uint>();
+    static readonly uint ownPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+    SensorReportCallback sensorCallback;
+    IMFSensorActivityMonitor sensorMonitor;
+
+    public bool CameraMonitorRunning { get { return sensorMonitor != null; } }
+
+    void StartCameraMonitor()
+    {
+        try
+        {
+            MFStartup(0x00020070, 1);    // MF_VERSION, MFSTARTUP_LITE
+            sensorCallback = new SensorReportCallback(OnSensorReport);
+            if (MFCreateSensorActivityMonitor(sensorCallback, out sensorMonitor) == 0) sensorMonitor.Start();
+        }
+        catch (Exception ex) { Store.Log("camera monitor: " + ex.Message); }
+    }
+
+    // Each report lists the cameras and which processes are streaming from them right now.
+    void OnSensorReport(IMFSensorActivitiesReport report)
+    {
+        var pids = new List<uint>();
+        uint n;
+        if (report.GetCount(out n) != 0) return;
+        for (uint i = 0; i < n; i++)
+        {
+            IMFSensorActivityReport device;
+            if (report.GetActivityReport(i, out device) != 0 || device == null) continue;
+            uint count;
+            if (device.GetProcessCount(out count) == 0)
+                for (uint j = 0; j < count; j++)
+                {
+                    IMFSensorProcessActivity act;
+                    if (device.GetProcessActivity(j, out act) != 0 || act == null) continue;
+                    uint pid; int streaming;
+                    if (act.GetProcessId(out pid) == 0 && act.GetStreamingState(out streaming) == 0 && streaming != 0 && pid != ownPid && !pids.Contains(pid)) pids.Add(pid);
+                    Marshal.ReleaseComObject(act);
+                }
+            Marshal.ReleaseComObject(device);
+        }
+        lock (liveLock) cameraPids = pids;
+        var h = Changed;
+        if (h != null) h();
+    }
+
+    public static List<string> LiveCamera()
+    {
+        List<uint> pids;
+        lock (liveLock) pids = new List<uint>(cameraPids);
+        return pids.Select(ProcessLabel).Where(x => x != null).Distinct().ToList();
+    }
+
+    // Microphone: any recording (capture) audio session that is active right now, the same thing the volume mixer sees.
+    public static List<string> LiveMicrophone()
+    {
+        var list = new List<string>();
+        try
+        {
+            var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IntPtr pc;
+            if (en.EnumAudioEndpoints(1, 1, out pc) != 0 || pc == IntPtr.Zero) return list;    // eCapture, DEVICE_STATE_ACTIVE
+            var devices = (IMMDeviceCollection)Marshal.GetObjectForIUnknown(pc);
+            Marshal.Release(pc);
+            uint n;
+            devices.GetCount(out n);
+            var iid = typeof(IAudioSessionManager2).GUID;
+            for (uint i = 0; i < n; i++)
+            {
+                IMMDevice dev;
+                object o;
+                if (devices.Item(i, out dev) != 0 || dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) continue;
+                IAudioSessionEnumerator sessions;
+                if (((IAudioSessionManager2)o).GetSessionEnumerator(out sessions) == 0)
+                {
+                    int count;
+                    sessions.GetCount(out count);
+                    for (int k = 0; k < count; k++)
+                    {
+                        object so;
+                        if (sessions.GetSession(k, out so) != 0) continue;
+                        var ctl = so as IAudioSessionControl2;
+                        int state; uint pid;
+                        if (ctl != null && ctl.GetState(out state) == 0 && state == 1 && ctl.GetProcessId(out pid) == 0 && pid != 0 && pid != ownPid)
+                        {
+                            var name = ProcessLabel(pid);
+                            if (name != null && !list.Contains(name)) list.Add(name);
+                        }
+                        Marshal.ReleaseComObject(so);
+                    }
+                    Marshal.ReleaseComObject(sessions);
+                }
+                Marshal.ReleaseComObject(o);
+                Marshal.ReleaseComObject(dev);
+            }
+            Marshal.ReleaseComObject(devices);
+            Marshal.ReleaseComObject(en);
+        }
+        catch (Exception) { }
+        return list;
+    }
+
+    static string ProcessLabel(uint pid)
+    {
+        try
+        {
+            var name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
+            return name.Length > 0 ? char.ToUpper(name[0]) + name.Substring(1) : null;
+        }
+        catch (Exception) { return null; }
+    }
     public static List<string> InUse(string capability)
     {
         var list = new List<string>();
@@ -305,6 +420,97 @@ interface IMMDeviceEnumerator
 interface IMMDevice
 {
     [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr p, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+}
+[ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceCollection
+{
+    [PreserveSig] int GetCount(out uint count);
+    [PreserveSig] int Item(uint index, out IMMDevice device);
+}
+
+[ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionManager2
+{
+    [PreserveSig] int GetAudioSessionControl(IntPtr a, uint b, out IntPtr c);
+    [PreserveSig] int GetSimpleAudioVolume(IntPtr a, uint b, out IntPtr c);
+    [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessions);
+}
+
+[ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionEnumerator
+{
+    [PreserveSig] int GetCount(out int count);
+    [PreserveSig] int GetSession(int index, [MarshalAs(UnmanagedType.IUnknown)] out object session);
+}
+
+[ComImport, Guid("bfb7ff88-7239-4fc9-8fa2-07c950be9c6d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionControl2
+{
+    [PreserveSig] int GetState(out int state);    // 1 = active (recording right now)
+    [PreserveSig] int GetDisplayName(out IntPtr name);
+    [PreserveSig] int SetDisplayName(IntPtr name, IntPtr ctx);
+    [PreserveSig] int GetIconPath(out IntPtr path);
+    [PreserveSig] int SetIconPath(IntPtr path, IntPtr ctx);
+    [PreserveSig] int GetGroupingParam(out Guid g);
+    [PreserveSig] int SetGroupingParam(ref Guid g, IntPtr ctx);
+    [PreserveSig] int RegisterAudioSessionNotification(IntPtr n);
+    [PreserveSig] int UnregisterAudioSessionNotification(IntPtr n);
+    [PreserveSig] int GetSessionIdentifier(out IntPtr id);
+    [PreserveSig] int GetSessionInstanceIdentifier(out IntPtr id);
+    [PreserveSig] int GetProcessId(out uint pid);
+}
+
+// Media Foundation's sensor activity monitor: Windows calls back whenever an app starts or stops streaming
+// from a camera. It only reports activity; it never opens the camera itself.
+[ComImport, Guid("D0CEF145-B3F4-4340-A2E5-7A5080CA05CB"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMFSensorActivityMonitor
+{
+    [PreserveSig] int Start();
+    [PreserveSig] int Stop();
+}
+
+[ComImport, Guid("DE5072EE-DBE3-46DC-8A87-B6F631194751"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMFSensorActivitiesReportCallback
+{
+    [PreserveSig] int OnActivitiesReport(IMFSensorActivitiesReport report);
+}
+
+[ComImport, Guid("683F7A5E-4A19-43CD-B1A9-DBF4AB3F7777"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMFSensorActivitiesReport
+{
+    [PreserveSig] int GetCount(out uint count);
+    [PreserveSig] int GetActivityReport(uint index, out IMFSensorActivityReport report);
+    [PreserveSig] int GetActivityReportByDeviceName([MarshalAs(UnmanagedType.LPWStr)] string name, out IMFSensorActivityReport report);
+}
+
+[ComImport, Guid("3E8C4BE1-A8C2-4528-90DE-2851BDE5FEAD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMFSensorActivityReport
+{
+    [PreserveSig] int GetFriendlyName([MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder name, uint size, out uint written);
+    [PreserveSig] int GetSymbolicLink([MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder link, uint size, out uint written);
+    [PreserveSig] int GetProcessCount(out uint count);
+    [PreserveSig] int GetProcessActivity(uint index, out IMFSensorProcessActivity activity);
+}
+
+[ComImport, Guid("39DC7F4A-B141-4719-813C-A7F46162A2B8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMFSensorProcessActivity
+{
+    [PreserveSig] int GetProcessId(out uint pid);
+    [PreserveSig] int GetStreamingState(out int streaming);
+    [PreserveSig] int GetStreamingMode(out int mode);
+    [PreserveSig] int GetReportTime(out long fileTime);
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+class SensorReportCallback : IMFSensorActivitiesReportCallback
+{
+    readonly Action<IMFSensorActivitiesReport> onReport;
+    public SensorReportCallback(Action<IMFSensorActivitiesReport> onReport) { this.onReport = onReport; }
+    public int OnActivitiesReport(IMFSensorActivitiesReport report)
+    {
+        try { onReport(report); } catch (Exception) { }
+        return 0;
+    }
 }
 
 [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -1335,6 +1541,7 @@ class Island : Window
         clipTimer = MakeTimer(90, delegate { clipTimer.Stop(); ReadClipboard(); });
         noteTimer = MakeTimer(3000, delegate { PollNotifications(); });
         privacyTimer = MakeTimer(300, delegate { privacyTimer.Stop(); UpdatePrivacy(); });
+        MakeTimer(2000, delegate { UpdatePrivacy(); }).Start();    // microphone sessions
         tabHoverTimer = MakeTimer(140, delegate { tabHoverTimer.Stop(); if (mode == Mode.Expanded && tabHoverTarget >= 0) SelectTab(tabHoverTarget); });
 
         BuildCollapsed();
@@ -2075,8 +2282,8 @@ class Island : Window
 
     void UpdatePrivacy()
     {
-        var cam = PrivacyWatch.InUse("webcam");
-        var mic = PrivacyWatch.InUse("microphone");
+        var cam = PrivacyWatch.InUse("webcam").Concat(PrivacyWatch.LiveCamera()).Distinct().ToList();
+        var mic = PrivacyWatch.InUse("microphone").Concat(PrivacyWatch.LiveMicrophone()).Distinct().ToList();
         string started = cam.FirstOrDefault(a => !camApps.Contains(a));
         bool camStarted = started != null;
         if (started == null) started = mic.FirstOrDefault(a => !micApps.Contains(a));
@@ -3738,6 +3945,20 @@ static class SelfTest
             say("Battery: " + ps.BatteryLifePercent + "% AC=" + ps.ACLineStatus + " WinRT status=" + report.Status);
         }
         catch (Exception ex) { say("Battery: FAILED " + ex.Message); }
+
+        try
+        {
+            var pw = new PrivacyWatch();
+            bool reported = false;
+            pw.Changed += () => reported = true;
+            pw.Start();
+            Thread.Sleep(1500);
+            Func<List<string>, string> show = l => l.Count == 0 ? "none" : string.Join(", ", l);
+            say("Camera monitor: " + (pw.CameraMonitorRunning ? "running" : "NOT running") + (reported ? ", first report received" : ", no report yet")
+                + "; camera in use: " + show(PrivacyWatch.LiveCamera()) + "; microphone in use: " + show(PrivacyWatch.LiveMicrophone())
+                + "; registry says camera: " + show(PrivacyWatch.InUse("webcam")) + ", microphone: " + show(PrivacyWatch.InUse("microphone")));
+        }
+        catch (Exception ex) { say("Camera monitor: FAILED " + ex.Message); }
 
         File.WriteAllText(outFile, r.ToString());
     }
