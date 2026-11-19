@@ -91,9 +91,7 @@ Find it at the bottom right, maybe under the `^` arrow. From there you can open 
 | --- | --- | --- |
 | `WinUltra.exe` | `Build.cmd` | Full build: island, clock, floating taskbar. Installs itself and starts with Windows. |
 | `WinUltra-NoTaskbar.exe` | `BuildNoTaskbar.cmd` | Same, without the floating-taskbar code, so nothing touches Explorer. |
-| "WinUltra for Friends" | `BuildFriends.cmd` | For sharing. A setup window on first run lets each person switch every part on or off. It never copies itself, watches the keyboard, or types keys, and it contains no taskbar code. It runs with normal user rights only. |
 
-The Friends build is written to a `WinUltra for Friends` folder on your desktop and does not replace your own build.
 
 ## Memory use
 
@@ -124,7 +122,6 @@ You need only what ships with Windows 11 (the .NET Framework compiler `csc.exe`)
 ```powershell
 .\Build.cmd             # WinUltra.exe
 .\BuildNoTaskbar.cmd    # WinUltra-NoTaskbar.exe
-.\BuildFriends.cmd      # WinUltra for Friends, on your desktop
 ```
 
 If `WinUltra.ico` is missing, the scripts regenerate it with `MakeIcon.ps1`. To rebuild the quick guide PDF, run `python MakeGuide.py` (needs `reportlab`).
@@ -136,7 +133,6 @@ src/
   WinUltra.cs   app startup, tray icon, options, install and uninstall
   Island.cs     the island, its tabs, pop-ups, clipboard, shelf, timers
   Clock.cs      the desktop clock
-  Friends.cs    first-run setup window for the Friends build
 fonts/          Anurati and Montserrat, embedded in the exe
 guide-images/   screenshots used by the guide and this README
 WinUltra-Guide.pdf   illustrated quick guide for new users
