@@ -1161,8 +1161,11 @@ class Island : Window
 
     // camera and microphone dot
     readonly PrivacyWatch privacy = new PrivacyWatch();
-    readonly System.Windows.Shapes.Ellipse privacyDot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+    readonly System.Windows.Shapes.Ellipse privacyDot = new System.Windows.Shapes.Ellipse { Width = 11, Height = 11, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
     readonly TranslateTransform privacyShift = new TranslateTransform();
+    // A soft glow around the dot, so it stands out next to the bright line (camera green, microphone orange).
+    readonly System.Windows.Media.Effects.DropShadowEffect privacyGlow = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Opacity = 0.95, Color = Color.FromRgb(0x30, 0xD1, 0x58) };
+    bool privacyPulsing;
     List<string> camApps = new List<string>(), micApps = new List<string>();
     TextBlock privacyLabel;
     DispatcherTimer privacyTimer;
@@ -1318,6 +1321,7 @@ class Island : Window
         root.Children.Add(hitStrip);
         root.Children.Add(island);
         privacyDot.RenderTransform = privacyShift;
+        privacyDot.Effect = privacyGlow;
         root.Children.Add(privacyDot);
         root.AllowDrop = true;
         Content = root;
@@ -1424,8 +1428,8 @@ class Island : Window
         glassBrush.Viewport = new Rect((w - ExpW) / 2, 0, ExpW, ExpH);
         rimOverlay.CornerRadius = new CornerRadius(Math.Max(0, r - 0.75));
         // The camera/mic dot rides just right of the island, like the iPhone's.
-        privacyShift.X = w / 2 + 10;
-        privacyDot.Margin = new Thickness(0, Gap + h / 2 - 3.5, 0, 0);
+        privacyShift.X = w / 2 + 14;
+        privacyDot.Margin = new Thickness(0, Gap + h / 2 - 5.5, 0, 0);
     }
 
     // The solid base hides under the glass, unless frosted glass is switched off (friends' build).
@@ -1815,7 +1819,7 @@ class Island : Window
         Action done = delegate
         {
             // At rest the window hugs the line or pill, so the music bars redraw a small area.
-            if (mode == Mode.Collapsed) Resize(line ? 220 : PillW + 44, line ? 26 : PillH + Gap + 10);
+            if (mode == Mode.Collapsed) Resize(line ? 262 : PillW + 84, line ? 30 : PillH + Gap + 14);
             trimTimer.Stop();
             trimTimer.Start();
         };
@@ -2081,7 +2085,20 @@ class Island : Window
         bool any = cam.Count > 0 || mic.Count > 0;
         // Green for the camera, orange for the microphone alone, as on the iPhone.
         privacyDot.Fill = cam.Count > 0 ? UI.Green : UI.Orange;
+        privacyGlow.Color = cam.Count > 0 ? Color.FromRgb(0x30, 0xD1, 0x58) : Color.FromRgb(0xFF, 0x9F, 0x0A);
         privacyDot.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+        if (any && !privacyPulsing)
+        {
+            var pulse = new DoubleAnimation(1, 0.45, TimeSpan.FromSeconds(0.9)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
+            Timeline.SetDesiredFrameRate(pulse, 20);
+            privacyDot.BeginAnimation(UIElement.OpacityProperty, pulse);
+            privacyPulsing = true;
+        }
+        else if (!any && privacyPulsing)
+        {
+            privacyDot.BeginAnimation(UIElement.OpacityProperty, null);    // stops the pulse, so nothing redraws while idle
+            privacyPulsing = false;
+        }
         if (privacyLabel != null)
         {
             privacyLabel.Text = any ? "● " + string.Join(", ", cam.Concat(mic).Distinct()) : "";
