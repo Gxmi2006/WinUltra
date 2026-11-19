@@ -22,7 +22,8 @@ A thin glowing line sits at the top of your screen. Hover it and it grows into a
 | **Clipboard history** | Press the picker hotkey anywhere, click something you copied earlier, and it pastes. |
 | **Shelf** | Drop files on the island to park them, drag them out later, or pin files, folders, and apps as one-click launchers. |
 | **Floating taskbar** | Rounded and slightly lifted off the screen edge (not in every build, see below). |
-| **Private and light** | One `.exe`, no installer, no admin rights, no network access. Settings stay on your PC. |
+| **Easy on RAM** | Hands memory back to Windows whenever the island is closed and the clock is idle. See [Memory use](#memory-use). |
+| **Private** | One `.exe`, no installer, no admin rights, no network access. Settings stay on your PC. |
 
 ## Install
 
@@ -93,6 +94,22 @@ Find it at the bottom right, maybe under the `^` arrow. From there you can open 
 | "WinUltra for Friends" | `BuildFriends.cmd` | For sharing. A setup window on first run lets each person switch every part on or off. It never copies itself, watches the keyboard, or types keys, and it contains no taskbar code. It runs with normal user rights only. |
 
 The Friends build is written to a `WinUltra for Friends` folder on your desktop and does not replace your own build.
+
+## Memory use
+
+WinUltra stays running in the background, so it gives memory back whenever it can.
+
+| What it does | When |
+| --- | --- |
+| Collects garbage and trims the island's working set, so Windows can reuse the pages | About 3 seconds after the island closes, and 8 seconds after startup |
+| Does the same after each clock redraw, since nothing changes for another minute | Once a minute while the clock is idle |
+| Caps clipboard history at 30 items (pinned items are kept) | As you copy |
+| Freezes brushes, pens, and images once built, so WPF can share them instead of copying them | Always |
+| Keeps the frosted-glass blur in memory only, never writing it to disk | Always |
+
+The trim is skipped while the island is open, so opening it and switching tabs stays smooth.
+
+Task Manager will show WinUltra's memory dropping a few seconds after the island closes. Trimming returns idle pages to Windows, and they are loaded back on demand the next time the island opens, so the first open after a long idle can take a moment longer.
 
 ## Privacy
 
