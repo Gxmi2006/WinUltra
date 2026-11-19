@@ -93,7 +93,7 @@ namespace WinUltra
             Controls.Add(flow);
 
             flow.Controls.Add(new Label { Text = firstRun ? "Welcome to WinUltra" : "WinUltra settings", Font = new Font("Segoe UI Semibold", 14f), AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
-            flow.Controls.Add(Note("A Dynamic Island at the top of your screen, a desktop clock and handy pop-ups. "
+            flow.Controls.Add(Note("A Dynamic Island at the top of your screen with handy pop-ups. "
                 + "Everything stays on this PC: WinUltra never connects to the internet."));
 
             flow.Controls.Add(Heading("Starting up"));

@@ -13,4 +13,4 @@ if not exist WinUltra.ico powershell -NoProfile -File MakeIcon.ps1
  /r:"%FW%\System.Runtime.dll" /r:"%FW%\System.Runtime.WindowsRuntime.dll" /r:"%FW%\System.Runtime.InteropServices.WindowsRuntime.dll" ^
  /r:"%WINMD%" ^
  /resource:fonts\Anurati-Regular.otf,WinUltra.Anurati.otf /resource:fonts\Montserrat-Light.ttf,WinUltra.Montserrat.ttf /resource:WinUltra.ico,WinUltra.ico ^
- src\WinUltra.cs src\Island.cs src\Clock.cs
+ src\WinUltra.cs src\Island.cs

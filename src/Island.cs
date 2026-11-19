@@ -200,101 +200,6 @@ static class Backdrop
     }
 }
 
-#if !NO_TASKBAR
-// ---------------------------------------------------------------- Floating taskbar
-
-// Cuts the real taskbar into a rounded bar that floats a few pixels off the screen edges.
-// The taskbar keeps drawing its own acrylic inside that shape. Explorer resets the shape when it
-// restarts or the bar changes size, so a window event hook (no polling) puts it back.
-// Stop() (and "DynamicIsland.exe --restore-taskbar") gives the taskbar its normal shape again.
-class TaskbarStyler
-{
-    delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time);
-    [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, WinEventProc proc, uint pid, uint tid, uint flags);
-    [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr hook);
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
-    [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
-    [DllImport("gdi32.dll")] static extern IntPtr CreateRoundRectRgn(int a, int b, int c, int d, int w, int h);
-
-    const int Side = 8, Edge = 6, Corner = 40;    // physical pixels
-    readonly WinEventProc proc;
-    readonly List<IntPtr> hooks = new List<IntPtr>();
-    readonly Dictionary<IntPtr, long> sizes = new Dictionary<IntPtr, long>();
-
-    public TaskbarStyler() { proc = OnEvent; }
-
-    static List<IntPtr> Bars()
-    {
-        var list = new List<IntPtr>();
-        IntPtr main = FindWindowEx(IntPtr.Zero, IntPtr.Zero, "Shell_TrayWnd", null);
-        if (main != IntPtr.Zero) list.Add(main);
-        IntPtr h = IntPtr.Zero;
-        while ((h = FindWindowEx(IntPtr.Zero, h, "Shell_SecondaryTrayWnd", null)) != IntPtr.Zero) list.Add(h);
-        return list;
-    }
-
-    public void Start()
-    {
-        Stop(false);
-        foreach (var bar in Bars())
-        {
-            uint pid;
-            uint tid = GetWindowThreadProcessId(bar, out pid);
-            IntPtr hook = SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, proc, pid, tid, 0);    // EVENT_OBJECT_LOCATIONCHANGE, out of context
-            if (hook != IntPtr.Zero) hooks.Add(hook);
-            Shape(bar);
-        }
-    }
-
-    void OnEvent(IntPtr hook, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time)
-    {
-        if (obj == 0 && sizes.ContainsKey(hwnd)) Shape(hwnd);    // OBJID_WINDOW: the bar itself moved or resized
-    }
-
-    void Shape(IntPtr bar)
-    {
-        Native.RECT r;
-        if (!Native.GetWindowRect(bar, out r)) return;
-        int w = r.Right - r.Left, h = r.Bottom - r.Top;
-        long key = ((long)w << 32) | (uint)h;
-        long old;
-        if (sizes.TryGetValue(bar, out old) && old == key) return;    // only a slide (auto-hide), the shape still fits
-        sizes[bar] = key;
-        if (w <= h) return;    // a side-docked taskbar is left alone
-        // The shape starts at the bar's top row: when the taskbar auto-hides, only its top 2 rows
-        // stay on screen, and they are what the mouse touches to bring it back.
-        SetWindowRgn(bar, CreateRoundRectRgn(Side, 0, w - Side + 1, h - Edge + 1, Corner, Corner), true);
-    }
-
-    public void Stop() { Stop(true); }
-
-    void Stop(bool restore)
-    {
-        foreach (var hook in hooks) UnhookWinEvent(hook);
-        hooks.Clear();
-        if (restore) Restore();
-        sizes.Clear();
-    }
-
-    public static void Restore()
-    {
-        foreach (var bar in Bars()) SetWindowRgn(bar, IntPtr.Zero, true);
-    }
-}
-
-#else
-
-// The no-taskbar build (NO_TASKBAR): this stand-in does nothing, so the exe never touches Explorer's taskbar.
-class TaskbarStyler
-{
-    public void Start() { }
-    public void Stop() { }
-    public static void Restore() { }
-}
-
-#endif
-
 // ---------------------------------------------------------------- Camera and microphone in use
 
 // Windows notes in the registry when an app starts and stops using the camera or microphone
@@ -1253,8 +1158,6 @@ class Island : Window
 
     // controls
     readonly Volume volume = new Volume();
-    readonly TaskbarStyler taskbarStyler = new TaskbarStyler();
-    uint taskbarCreated;
 
     // camera and microphone dot
     readonly PrivacyWatch privacy = new PrivacyWatch();
@@ -1464,7 +1367,6 @@ class Island : Window
             Dispatcher.BeginInvoke(new Action(delegate
             {
                 Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
-                if (WinUltra.App.Options.FloatingTaskbar) Later(1000, delegate { try { taskbarStyler.Start(); } catch (Exception) { } });
             }));
         };
     }
@@ -1574,7 +1476,6 @@ class Island : Window
         Native.RegisterRawInputDevices(kb, 1, (uint)Marshal.SizeOf(typeof(Native.RAWINPUTDEVICE)));
 #endif
         openMessage = Native.RegisterWindowMessage("DynamicIslandOpenTab");
-        taskbarCreated = Native.RegisterWindowMessage("TaskbarCreated");
         fmtExclude = Native.RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing");
         fmtCanInclude = Native.RegisterClipboardFormat("CanIncludeInClipboardHistory");
         fmtViewerIgnore = Native.RegisterClipboardFormat("Clipboard Viewer Ignore");
@@ -1603,7 +1504,6 @@ class Island : Window
         volume.Init();
         pollTimer.Start();
         ApplyCollapsed(false);
-        if (WinUltra.App.Options.FloatingTaskbar) try { taskbarStyler.Start(); } catch (Exception ex) { Store.Log("taskbar: " + ex.Message); }
         try { privacy.Changed += () => Ui(delegate { privacyTimer.Stop(); privacyTimer.Start(); }); privacy.Start(); UpdatePrivacy(); }
         catch (Exception ex) { Store.Log("privacy: " + ex.Message); }
         InitBluetoothWatch();
@@ -1612,11 +1512,6 @@ class Island : Window
     }
 
     // ---------------------------------------------------------------- called from the tray menu
-
-    public void SetFloatingTaskbar(bool on)
-    {
-        try { if (on) taskbarStyler.Start(); else taskbarStyler.Stop(); } catch (Exception ex) { Store.Log("taskbar: " + ex.Message); }
-    }
 
     public void OpenFromTray() { OpenPinned(-1); }
 
@@ -1675,7 +1570,6 @@ class Island : Window
             if (brightWatcher != null) brightWatcher.Stop();
             foreach (var bw in btWatchers) bw.Stop();
             Native.RemoveClipboardFormatListener(hwnd);
-            taskbarStyler.Stop();
         }
         catch (Exception) { }
     }
@@ -1710,10 +1604,6 @@ class Island : Window
             clipAttempts = 0;
             clipTimer.Stop();
             clipTimer.Start();
-        }
-        else if (taskbarCreated != 0 && msg == (int)taskbarCreated)    // Explorer restarted: shape the new taskbar
-        {
-            if (WinUltra.App.Options.FloatingTaskbar) Later(1500, delegate { try { taskbarStyler.Start(); } catch (Exception) { } });
         }
         else if (openMessage != 0 && msg == (int)openMessage)
         {

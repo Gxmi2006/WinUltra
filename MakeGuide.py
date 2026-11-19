@@ -56,7 +56,7 @@ def header(c, doc):
     c.drawString(MARGIN + 30 * mm, H - 24 * mm, "WinUltra")
     c.setFont("Segoe-L", 12)
     c.setFillColor(HexColor("#C9C6E8"))
-    c.drawString(MARGIN + 30 * mm, H - 32 * mm, "A glass Dynamic Island, a desktop clock and a floating taskbar for Windows 11.")
+    c.drawString(MARGIN + 30 * mm, H - 32 * mm, "A glass Dynamic Island for Windows 11.")
     c.restoreState()
     footer(c, doc)
 
@@ -140,33 +140,6 @@ story.append(side_by_side(
 
 # ---------------------------------------------------------------- page 2
 story.append(PageBreak())
-story.append(Paragraph("Your desktop clock", h2))
-clock_panel = Table([[picture("clock.png", 120 * mm)]], colWidths=[CONTENT])
-clock_panel.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NIGHT), ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                                 ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-                                 ("ROUNDEDCORNERS", [10, 10, 10, 10])]))
-story.append(clock_panel)
-story.append(Spacer(1, 8))
-story.append(Paragraph("<b>Move it or change its size</b>", body))
-story.append(Spacer(1, 4))
-edit_text = [
-    Paragraph("Go to your desktop and <b>right-click the clock</b>. Choose <b>Edit mode</b>.", tip, bulletText="1"),
-    Paragraph("A dashed box appears around it. <b>Drag the clock</b> to move it anywhere.", tip, bulletText="2"),
-    Paragraph("To make it bigger or smaller, <b>drag the little corner triangle</b>, or <b>scroll the mouse wheel</b> over it.", tip, bulletText="3"),
-    Paragraph("Press <b>Esc</b> (or click somewhere else) when you're happy. It remembers the spot.", tip, bulletText="4"),
-    Spacer(1, 4),
-    Paragraph("Made a mess? Right-click it and choose <b>Reset size and position</b>. "
-              "Don't want it? Choose <b>Hide clock</b>; you can bring it back from the tray icon.", body),
-]
-edit_panel = Table([[picture("clock-edit.png", 72 * mm)]], colWidths=[80 * mm])
-edit_panel.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NIGHT), ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                                ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                                ("ROUNDEDCORNERS", [10, 10, 10, 10])]))
-row = Table([[edit_text, [edit_panel, Spacer(1, 3), Paragraph("Edit mode", caption)]]], colWidths=[CONTENT - 84 * mm, 84 * mm])
-row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                         ("RIGHTPADDING", (0, 0), (0, -1), 6 * mm), ("RIGHTPADDING", (1, 0), (1, -1), 0)]))
-story.append(row)
-
 story.append(Paragraph("Little pop-ups", h2))
 pop_row = Table([[picture("popup-caps.png", 70 * mm),
                   Paragraph("The island grows for a moment to tell you something: volume or brightness changes, "
@@ -180,8 +153,7 @@ story.append(Paragraph("Handy extras", h2))
 for text in [
     "<b>Copy history</b>: press <b>Ctrl+Alt+Shift+V</b> anywhere, then click something you copied earlier to paste it.",
     "<b>Shelf</b>: drag files onto the island to park them, and drag them out later to use them. Pin an app or folder to launch it in one click.",
-    "<b>Floating taskbar</b>: your taskbar gets rounded and floats a little off the edge.",
-    "<b>Tray icon</b> (bottom right, maybe under the <b>^</b>): turn the clock or floating taskbar off, quit, or uninstall.",
+    "<b>Tray icon</b> (bottom right, maybe under the <b>^</b>): open the island, stop starting with Windows, quit, or uninstall.",
 ]:
     story.append(Paragraph(text, tip, bulletText="\u2022"))
 
