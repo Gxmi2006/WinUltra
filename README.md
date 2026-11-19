@@ -5,6 +5,7 @@
 ![Windows 11](https://img.shields.io/badge/Windows-11%20(64--bit)-0A84FF?style=flat-square)
 ![No admin needed](https://img.shields.io/badge/Admin-not%20required-22C55E?style=flat-square)
 ![Offline](https://img.shields.io/badge/Network-none-111827?style=flat-square)
+![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=flat-square&logo=kofi&logoColor=white)
 
 A thin glowing line sits at the top of your screen. Hover it and it grows into an island with your music, quick controls, system stats, clipboard history, a file shelf, and timers. It also puts a clean clock on your desktop and can give your taskbar rounded, floating corners.
 
@@ -137,6 +138,10 @@ fonts/          Anurati and Montserrat, embedded in the exe
 guide-images/   screenshots used by the guide and this README
 WinUltra-Guide.pdf   illustrated quick guide for new users
 ```
+
+## Support
+
+WinUltra is free. If you enjoy it, you can [support me on Ko-fi](https://ko-fi.com/gamindusasmitha).
 
 ## Quick guide
 
