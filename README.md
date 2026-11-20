@@ -16,7 +16,7 @@ A thin glowing line sits at the top of your screen. Hover it and it grows into a
 
 ## Get started
 
-You need Windows 11 (64-bit). No admin rights are needed.
+You need Windows 11 (64-bit). No administrator rights are needed.
 
 1. **Download** [WinUltra.exe](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra.exe). It is a single file of about 300 KB.
 2. **Put it in a folder you'll keep**, such as Documents. WinUltra runs from wherever it is and never copies itself anywhere, so its shortcuts point to that spot.
