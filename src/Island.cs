@@ -1639,7 +1639,7 @@ class Island : Window
         privacyDot.Margin = new Thickness(0, Gap + h / 2 - 5.5, 0, 0);
     }
 
-    // The solid base hides under the glass, unless frosted glass is switched off (friends' build).
+    // The solid base hides under the glass, unless frosted glass is switched off.
     double BaseUnderGlass
     {
         get

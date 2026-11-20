@@ -1,0 +1,13 @@
+# Promo material and its working files (kept locally, not part of the app)
+marketing/
+better-ui-*.png
+youtube-watermark.png
+
+# Local data and logs from running WinUltra next to its source
+island-data/
+*.log
+
+# Editor and OS clutter
+*.tmp
+Thumbs.db
+desktop.ini

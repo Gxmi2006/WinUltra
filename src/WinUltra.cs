@@ -1,13 +1,16 @@
 // WinUltra: a glass Dynamic Island for Windows 11, in one exe.
 //
-// Running WinUltra.exe from anywhere (Downloads, a USB stick) installs it: it copies itself to
-// %LOCALAPPDATA%\Programs\WinUltra, adds itself to Windows startup, makes a desktop shortcut and a
-// Start menu entry (once), and starts from there. Opening the shortcut while it runs opens the island.
-// No admin rights are needed. Settings, clipboard pins and the shelf live in %LOCALAPPDATA%\WinUltra.
-// The tray icon opens the island, turns starting with Windows on or off, quits, or uninstalls.
+// WinUltra.exe runs from wherever it is kept and never copies itself anywhere. On first run a setup
+// window (Setup.cs) explains each part and lets the person choose: start when they sign in (a normal
+// Start-up folder shortcut), a desktop shortcut, clipboard history, notification pop-ups, frosted glass
+// and the Caps Lock pop-up. The tray icon switches any of these later, reopens the setup window, quits,
+// or removes WinUltra. No admin rights are needed. Settings, clipboard pins and the shelf live in
+// %LOCALAPPDATA%\WinUltra.
+//
+// Build.cmd compiles with /define:FRIENDS, which selects this opt-in behaviour. The code outside
+// FRIENDS is the older self-installing variant and is not part of the published build.
 //
 // Extra command lines:
-//   WinUltra.exe --portable              runs from where it is, without installing
 //   WinUltra.exe --open N                opens island tab N (0 Media, 1 Controls, 2 Stats, 3 Clipboard, 4 Shelf, 5 Timer)
 //   WinUltra.exe --selftest out.txt      checks media, volume, brightness, radios, sensors and notifications
 
@@ -27,7 +30,7 @@ using Microsoft.Win32;
 [assembly: AssemblyFileVersion("1.0.0.0")]
 #if FRIENDS
 [assembly: AssemblyCompany("WinUltra")]
-[assembly: AssemblyCopyright("WinUltra 2026. Free to share with friends.")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 Gamindu Sasmitha. MIT License.")]
 #endif
 
 namespace WinUltra
@@ -97,7 +100,7 @@ namespace WinUltra
 #endif
         static readonly string LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 #if FRIENDS
-        // WINULTRA_DATA can point the friends' build at another folder (used when testing it next to the full build).
+        // WINULTRA_DATA can point WinUltra at another data folder (handy for testing).
         public static readonly string DataDir = Environment.GetEnvironmentVariable("WINULTRA_DATA") ?? Path.Combine(LocalAppData, "WinUltra");
         public static string ExePath { get { return ThisExe; } }
         static bool removeData;
@@ -400,12 +403,12 @@ namespace WinUltra
             icon.Text = "WinUltra";
 
 #if FRIENDS
-            BuildFriendsMenu();
+            BuildMenu();
             icon.MouseClick += (s, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) App.OpenIsland(); };
             icon.Visible = true;
         }
 
-        void BuildFriendsMenu()
+        void BuildMenu()
         {
             var menu = new System.Windows.Forms.ContextMenuStrip();
             var open = new System.Windows.Forms.ToolStripMenuItem("Open island", null, delegate { App.OpenIsland(); }) { ShortcutKeyDisplayString = "Ctrl+Alt+Space" };

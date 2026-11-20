@@ -1,4 +1,4 @@
-// WinUltra, friends' build only (compiled with /define:FRIENDS by BuildFriends.cmd).
+// WinUltra's setup window and shortcuts (compiled with /define:FRIENDS, which Build.cmd sets).
 // Everything WinUltra does is the person's choice: a setup window on first run explains each part
 // and lets them switch it on or off, and the same window opens again from the tray icon.
 // The exe runs from wherever it is kept; it never copies itself anywhere.
