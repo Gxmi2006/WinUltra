@@ -47,7 +47,7 @@ Only run one of the three at a time.
 | Feature | What it does |
 | --- | --- |
 | **The island** | Hover the line or press `Ctrl+Alt+Space`. Rest the mouse on a tab to switch. Move away and it closes. |
-| **Live pop-ups** | The island briefly grows to show volume and brightness changes, charger in or out, notifications, earbuds connecting, and (if you switch it on) Caps Lock. A green dot appears while an app uses your camera, an orange one for the microphone. |
+| **Live pop-ups** | The island briefly grows to show volume and brightness changes, charger in or out, notifications, earbuds connecting, and (if you switch it on) Caps Lock. Click a notification to open the app it came from; it stays put while the mouse is on it. A green dot appears while an app uses your camera, an orange one for the microphone. |
 | **Clipboard history** | Press `Win+Shift+V` anywhere, click something you copied earlier, then press `Ctrl+V` to paste it. |
 | **Shelf** | Drop files on the island to park them, drag them out later, or pin files, folders, and apps as one-click launchers. |
 | **Easy on RAM** | Hands memory back to Windows whenever the island is closed. See [Memory use](#memory-use). |
@@ -59,9 +59,9 @@ Hover the glowing line at the top of your main screen, or press `Ctrl+Alt+Space`
 
 | Tab | What it does |
 | --- | --- |
-| **Media** | Shows what is playing in Spotify, YouTube, or any player. Pause or skip from here. |
-| **Controls** | Tap a tile to switch it on or off. Drag the tall sliders for brightness and volume. |
-| **Stats** | CPU and graphics load, internet speed, and battery. |
+| **Media** | Shows what is playing in Spotify, YouTube, or any player. Pause or skip from here, or click or drag the progress bar to jump to any point in the song. |
+| **Controls** | Tap a tile to switch it on or off: Wi-Fi, Bluetooth, Night light, Mute, and Mute mic. Drag the tall sliders for brightness and volume. |
+| **Stats** | CPU and graphics load, internet speed, memory in use, and battery. |
 | **Clipboard** | Your recent copies. Click one to copy it again, then press `Ctrl+V`. |
 | **Shelf** | Files you dropped or pinned. |
 | **Timer** | Tap a preset to start. **Focus 25** gives you 25 quiet minutes with no pop-ups. |
@@ -151,7 +151,7 @@ You need only what ships with Windows 11 (the .NET Framework compiler `csc.exe`)
 .\Build.cmd    # builds WinUltra.exe (120 fps), WinUltra-HighFPS.exe (144 fps) and WinUltra-LowFPS.exe (60 fps)
 ```
 
-If `WinUltra.ico` is missing, the script regenerates it with `MakeIcon.ps1`. Run `WinUltra.exe --selftest report.txt` to check media, volume, brightness, radios, sensors, notifications, and camera/microphone detection on your PC.
+If `WinUltra.ico` is missing, the script regenerates it with `MakeIcon.ps1`. Run `WinUltra.exe --selftest report.txt` to check media, volume, brightness, radios, sensors, memory, notifications, the microphone's mute switch, and camera/microphone detection on your PC. Add `--micmute` to also flip the microphone's mute and put it back.
 
 ## What is in the repo
 

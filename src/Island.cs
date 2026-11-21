@@ -85,6 +85,8 @@ static class Native
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("kernel32.dll")] public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS s);
+    [DllImport("kernel32.dll")] public static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX m);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SHParseDisplayName(string name, IntPtr bindContext, out IntPtr pidl, uint sfgaoIn, out uint sfgaoOut);
     [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
     [DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr process);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SHGetFileInfo(string path, uint attr, ref SHFILEINFO info, uint size, uint flags);
@@ -96,6 +98,38 @@ static class Native
     public struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
     [StructLayout(LayoutKind.Sequential)]
     public struct SYSTEM_POWER_STATUS { public byte ACLineStatus, BatteryFlag, BatteryLifePercent, SystemStatusFlag; public int BatteryLifeTime, BatteryFullLifeTime; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MEMORYSTATUSEX
+    {
+        public uint dwLength, dwMemoryLoad;
+        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
+    }
+
+    // RAM in use and installed, in bytes; false if Windows can't say.
+    public static bool Memory(out ulong used, out ulong total)
+    {
+        var m = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX)) };
+        used = total = 0;
+        if (!GlobalMemoryStatusEx(ref m) || m.ullTotalPhys == 0) return false;
+        total = m.ullTotalPhys;
+        used = m.ullTotalPhys - m.ullAvailPhys;
+        return true;
+    }
+
+    // Opens an installed app by its AppUserModelID, the way the Start menu does. Returns false, and
+    // opens nothing, if the app isn't in Windows' list of apps (some programs label their
+    // notifications with an ID that has no Start menu entry).
+    public static bool OpenApp(string appId)
+    {
+        if (string.IsNullOrEmpty(appId)) return false;
+        string target = @"shell:AppsFolder\" + appId;
+        IntPtr pidl;
+        uint attrs;
+        if (SHParseDisplayName(target, IntPtr.Zero, out pidl, 0, out attrs) != 0) return false;
+        Marshal.FreeCoTaskMem(pidl);
+        Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        return true;
+    }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct SHFILEINFO
     {
@@ -547,14 +581,20 @@ interface IMMNotificationClient
     [PreserveSig] int OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr key);
 }
 
-// Master volume of the default speakers. Changed fires on any thread: (level 0..1, muted, changedByAnotherApp).
+// Master volume of the default speakers, or of the default microphone with Volume.Microphone().
+// Changed fires on any thread: (level 0..1, muted, changedByAnotherApp).
 class Volume : IAudioEndpointVolumeCallback, IMMNotificationClient
 {
     public static Guid Context = Guid.NewGuid();
     IMMDeviceEnumerator enumerator;
     IAudioEndpointVolume endpoint;
+    readonly int flow, role;
     public event Action<float, bool, bool> Changed;
     public event Action DefaultDeviceChanged;
+
+    public Volume() : this(0, 1) { }    // eRender, eMultimedia: the speakers
+    Volume(int flow, int role) { this.flow = flow; this.role = role; }
+    public static Volume Microphone() { return new Volume(1, 0); }    // eCapture, eConsole: the default recording device
 
     public bool Init()
     {
@@ -567,7 +607,7 @@ class Volume : IAudioEndpointVolumeCallback, IMMNotificationClient
             }
             Release();
             IMMDevice device;
-            if (enumerator.GetDefaultAudioEndpoint(0, 1, out device) != 0 || device == null) return false;    // eRender, eMultimedia
+            if (enumerator.GetDefaultAudioEndpoint(flow, role, out device) != 0 || device == null) return false;
             Guid iid = typeof(IAudioEndpointVolume).GUID;
             object o;
             if (device.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) return false;                         // CLSCTX_ALL
@@ -616,7 +656,7 @@ class Volume : IAudioEndpointVolumeCallback, IMMNotificationClient
     public int OnPropertyValueChanged(string id, IntPtr key) { return 0; }
     public int OnDefaultDeviceChanged(int flow, int role, string id)
     {
-        if (flow == 0 && role == 1) { var h = DefaultDeviceChanged; if (h != null) h(); }
+        if (flow == this.flow && role == this.role) { var h = DefaultDeviceChanged; if (h != null) h(); }
         return 0;
     }
 }
@@ -1346,18 +1386,25 @@ class Island : Window
     // media page
     Border artBig;
     TextBlock mediaApp, mediaTitle, mediaArtist, playGlyph, posText, durText;
-    Grid progressRow;
+    Grid progressRow, seekStrip;
     Border progressFill;
+    bool canSeek, seeking;
+    double seekFraction;
+    TimeSpan mediaStart, mediaLength, seekTarget;
+    DateTimeOffset seekAt = DateTimeOffset.MinValue;
 
     // controls page
-    Border wifiTile, btTile, nightTile, muteTile;
+    Border wifiTile, btTile, nightTile, muteTile, micTile;
     VerticalBarSlider brightSlider, volSlider;
 
     // stats page
     Graph cpuGraph, gpuGraph, netGraph;
     TextBlock netDown, netUp;
-    TextBlock cpuValue, gpuValue, battBig, battStatus;
-    Border battFill;
+    TextBlock cpuValue, gpuValue, battBig, battStatus, ramBig, ramStatus;
+    Border battFill, ramFill;
+
+    // what a click on the current pop-up does (open the app a notification came from), or null
+    Action popupClick;
 
     // media state
     MediaManager mediaManager;
@@ -1372,6 +1419,7 @@ class Island : Window
 
     // controls
     readonly Volume volume = new Volume();
+    readonly Volume mic = Volume.Microphone();
 
     // camera and microphone dot
     readonly PrivacyWatch privacy = new PrivacyWatch();
@@ -1565,14 +1613,26 @@ class Island : Window
         {
             leaveTimer.Stop();
             pinnedOpen = false;
-            if (mode != Mode.Expanded) hoverTimer.Start();
+            // A notification you can click stays put while the mouse is on it, instead of opening the island.
+            if (ClickablePopup()) popupTimer.Stop();
+            else if (mode != Mode.Expanded) hoverTimer.Start();
         };
         root.MouseLeave += delegate
         {
             hoverTimer.Stop();
             if (mode == Mode.Expanded) leaveTimer.Start();
+            if (ClickablePopup()) popupTimer.Start();
         };
-        root.MouseLeftButtonUp += delegate { if (mode != Mode.Expanded) Expand(false); };
+        root.MouseLeftButtonUp += delegate
+        {
+            if (ClickablePopup())
+            {
+                var click = popupClick;
+                EndPopup();
+                click();
+            }
+            else if (mode != Mode.Expanded) Expand(false);
+        };
         root.DragEnter += OnDragOver;
         root.DragOver += OnDragOver;
         root.DragLeave += delegate { dragInside = false; leaveTimer.Stop(); leaveTimer.Start(); };
@@ -1721,6 +1781,9 @@ class Island : Window
         volume.Changed += (level, muted, external) => Ui(delegate { OnVolumeChanged(level, muted, external); });
         volume.DefaultDeviceChanged += () => Ui(delegate { volume.Init(); });
         volume.Init();
+        mic.Changed += (level, muted, external) => Ui(UpdateMicTile);
+        mic.DefaultDeviceChanged += () => Ui(delegate { mic.Init(); UpdateMicTile(); });
+        mic.Init();
         pollTimer.Start();
         ApplyCollapsed(false);
         try { privacy.Changed += () => Ui(delegate { privacyTimer.Stop(); privacyTimer.Start(); }); privacy.Start(); UpdatePrivacy(); }
@@ -1932,7 +1995,7 @@ class Island : Window
 
     void MaybeCollapse()
     {
-        if (mode != Mode.Expanded || draggingOut || dragInside) return;
+        if (mode != Mode.Expanded || draggingOut || dragInside || seeking) return;
         if (pinnedOpen) return;
         if (CursorOverIsland()) return;
         Collapse();
@@ -1960,10 +2023,13 @@ class Island : Window
         return local.X >= 0 && local.Y >= 0 && local.X <= hitStrip.ActualWidth && local.Y <= hitStrip.ActualHeight;
     }
 
+    bool ClickablePopup() { return mode == Mode.Popup && popupClick != null; }
+
     void ShowPopup(UIElement content, double w, double h, int ms, bool force)
     {
         if (mode == Mode.Expanded) return;
         if (hidden && !force) return;
+        popupClick = null;
         if (force && hidden) { hidden = false; forceShowUntil = DateTime.Now.AddMilliseconds(ms + 500); Show(); }
         if (popupLayer.Children.Count != 1 || popupLayer.Children[0] != content)
         {
@@ -2000,6 +2066,7 @@ class Island : Window
     void EndPopup()
     {
         if (mode != Mode.Popup) return;
+        popupClick = null;
         mode = Mode.Collapsed;
         HideLayer(popupLayer);
         ApplyCollapsed(true);
@@ -2490,9 +2557,10 @@ class Island : Window
 
     async Task ShowNotification(Windows.UI.Notifications.UserNotification n)
     {
-        string app = "", head = "", body = "";
+        string app = "", appId = null, head = "", body = "";
         ImageSource logo = null;
         try { app = n.AppInfo.DisplayInfo.DisplayName; } catch (Exception) { }
+        try { appId = n.AppInfo.AppUserModelId; } catch (Exception) { }
         try
         {
             var binding = n.Notification.Visual.GetBinding(Windows.UI.Notifications.KnownNotificationBindings.ToastGeneric);
@@ -2536,6 +2604,18 @@ class Island : Window
         if (body.Length > 0) s.Children.Add(UI.Text(body.Replace('\n', ' '), 12, UI.Dim, FontWeights.Normal));
         g.Children.Add(UI.At(s, 1));
         ShowPopup(g, NoteW, NoteH, 4200, false);
+
+        // Click it to open the app it came from, like a Windows notification.
+        if (mode == Mode.Popup && !string.IsNullOrEmpty(appId))
+        {
+            g.Background = Brushes.Transparent;
+            g.Cursor = Cursors.Hand;
+            popupClick = delegate
+            {
+                try { Native.OpenApp(appId); }
+                catch (Exception ex) { Store.Log("open " + appId + ": " + ex.Message); }
+            };
+        }
     }
 
     // ---------------------------------------------------------------- expanded panel
@@ -2656,16 +2736,19 @@ class Island : Window
         info.Children.Add(mediaTitle);
         info.Children.Add(mediaArtist);
 
-        progressRow = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        progressRow = new Grid { Margin = new Thickness(0, 9, 0, 0) };
         progressRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         progressRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var track = new Grid { Height = 5 };
         track.Children.Add(new Border { Background = UI.B("#2EFFFFFF"), CornerRadius = new CornerRadius(2.5) });
         progressFill = new Border { Background = UI.Fg, CornerRadius = new CornerRadius(2.5), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
         track.Children.Add(progressFill);
-        progressRow.Children.Add(UI.Row(track, 0));
+        // The thin track sits in a taller invisible strip so it is easy to click or drag.
+        seekStrip = new Grid { Height = 15, Background = Brushes.Transparent };
+        seekStrip.Children.Add(track);
+        HookSeek(seekStrip, track);
+        progressRow.Children.Add(UI.Row(seekStrip, 0));
         var times = UI.Columns(UI.Star, UI.Auto);
-        times.Margin = new Thickness(0, 5, 0, 0);
         posText = UI.Text("", 11, UI.Dim, FontWeights.Normal);
         durText = UI.Text("", 11, UI.Dim, FontWeights.Normal);
         times.Children.Add(UI.At(posText, 0));
@@ -2697,9 +2780,10 @@ class Island : Window
 
     void UpdateProgress()
     {
-        if (!built) return;
+        if (!built || seeking) return;
         var s = session;
         TimeSpan pos = TimeSpan.Zero, len = TimeSpan.Zero;
+        bool seekable = false;
         try
         {
             if (s != null && title != null)
@@ -2708,9 +2792,17 @@ class Island : Window
                 len = tl.EndTime - tl.StartTime;
                 pos = tl.Position - tl.StartTime;
                 if (playing) pos += DateTimeOffset.Now - tl.LastUpdatedTime;
+                // Right after a jump the player may not have reported its new position yet.
+                var sinceSeek = DateTimeOffset.Now - seekAt;
+                if (sinceSeek < TimeSpan.FromSeconds(2) && tl.LastUpdatedTime < seekAt) pos = seekTarget + (playing ? sinceSeek : TimeSpan.Zero);
+                mediaStart = tl.StartTime;
+                seekable = s.GetPlaybackInfo().Controls.IsPlaybackPositionEnabled;
             }
         }
         catch (Exception) { }
+        mediaLength = len;
+        canSeek = seekable && len.TotalSeconds >= 1;
+        seekStrip.Cursor = canSeek ? Cursors.Hand : null;
         if (len.TotalSeconds < 1) { progressRow.Visibility = Visibility.Collapsed; return; }
         if (pos > len) pos = len;
         if (pos < TimeSpan.Zero) pos = TimeSpan.Zero;
@@ -2721,24 +2813,86 @@ class Island : Window
         durText.Text = "-" + Format(len - pos);
     }
 
+    // Click or drag the progress bar to jump to that point in the song, when the player allows it.
+    // While dragging, the bar and times follow the mouse; the jump happens when the button is let go.
+    void HookSeek(Grid strip, FrameworkElement track)
+    {
+        strip.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+        {
+            if (!canSeek) return;
+            seeking = true;
+            strip.CaptureMouse();
+            SeekPreview(e.GetPosition(track).X / Math.Max(1, track.ActualWidth));
+            e.Handled = true;
+        };
+        strip.MouseMove += delegate(object s, MouseEventArgs e)
+        {
+            if (seeking) SeekPreview(e.GetPosition(track).X / Math.Max(1, track.ActualWidth));
+        };
+        strip.MouseLeftButtonUp += delegate(object s, MouseButtonEventArgs e)
+        {
+            if (!seeking) return;
+            seeking = false;
+            strip.ReleaseMouseCapture();
+            e.Handled = true;
+            SeekTo(seekFraction);
+            leaveTimer.Stop();    // the mouse may have left the island while dragging
+            leaveTimer.Start();
+        };
+        strip.LostMouseCapture += delegate { if (seeking) { seeking = false; UpdateProgress(); } };    // cancelled
+    }
+
+    void SeekPreview(double fraction)
+    {
+        seekFraction = Math.Max(0, Math.Min(1, fraction));
+        progressFill.BeginAnimation(WidthProperty, null);
+        progressFill.Width = Math.Max(0, ((FrameworkElement)progressFill.Parent).ActualWidth) * seekFraction;
+        var pos = TimeSpan.FromSeconds(mediaLength.TotalSeconds * seekFraction);
+        posText.Text = Format(pos);
+        durText.Text = "-" + Format(mediaLength - pos);
+    }
+
+    async void SeekTo(double fraction)
+    {
+        var s = session;
+        if (s == null) return;
+        seekTarget = TimeSpan.FromSeconds(mediaLength.TotalSeconds * fraction);
+        seekAt = DateTimeOffset.Now;
+        UpdateProgress();
+        try { await s.TryChangePlaybackPositionAsync((mediaStart + seekTarget).Ticks); }
+        catch (Exception ex) { Store.Log("seek: " + ex.Message); }
+    }
+
     // ---------------------------------------------------------------- Controls
 
     Grid BuildControls()
     {
-        // iOS Control Center: a 2x2 grid of toggles on the left, two tall sliders on the right.
+        // iOS Control Center: toggles on the left (two wide ones over three narrower ones), two tall sliders on the right.
         var page = UI.Columns(UI.Star, UI.Px(12), UI.Px(72), UI.Px(10), UI.Px(72));
-        var grid = UI.Columns(UI.Star, UI.Px(10), UI.Star);
+        var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = UI.Star });
         grid.RowDefinitions.Add(new RowDefinition { Height = UI.Px(10) });
         grid.RowDefinitions.Add(new RowDefinition { Height = UI.Star });
+        var top = UI.Columns(UI.Star, UI.Px(10), UI.Star);
+        var bottom = UI.Columns(UI.Star, UI.Px(10), UI.Star, UI.Px(10), UI.Star);
         wifiTile = Tile("\uE701", "Wi-Fi", delegate { ToggleRadio(wifi); });
         btTile = Tile("\uE702", "Bluetooth", delegate { ToggleRadio(bluetooth); });
         nightTile = Tile("\uE708", "Night light", ToggleNightLight);
         muteTile = Tile("\uE74F", "Mute", delegate { if (volume.Available) { volume.Muted = !volume.Muted; SetVolumeGlyph(volume.Level, volume.Muted); } });
-        grid.Children.Add(UI.Row(UI.At(wifiTile, 0), 0));
-        grid.Children.Add(UI.Row(UI.At(btTile, 2), 0));
-        grid.Children.Add(UI.Row(UI.At(nightTile, 0), 2));
-        grid.Children.Add(UI.Row(UI.At(muteTile, 2), 2));
+        micTile = Tile("\uE720", "Mute mic", delegate
+        {
+            if (!mic.Available) return;
+            bool muted = !mic.Muted;
+            mic.Muted = muted;
+            SetTile(micTile, muted ? 1 : 0, UI.Red);    // Windows reports the new state a moment later
+        });
+        top.Children.Add(UI.At(wifiTile, 0));
+        top.Children.Add(UI.At(btTile, 2));
+        bottom.Children.Add(UI.At(nightTile, 0));
+        bottom.Children.Add(UI.At(muteTile, 2));
+        bottom.Children.Add(UI.At(micTile, 4));
+        grid.Children.Add(UI.Row(top, 0));
+        grid.Children.Add(UI.Row(bottom, 2));
         page.Children.Add(UI.At(grid, 0));
 
         brightSlider = new VerticalBarSlider("\uE706", null);
@@ -2780,6 +2934,12 @@ class Island : Window
         tile.Opacity = state < 0 ? 0.45 : 1;
     }
 
+    // Red when the default microphone is muted, by this tile or by anything else (a headset button, a call app).
+    void UpdateMicTile()
+    {
+        if (micTile != null) SetTile(micTile, mic.Available ? (mic.Muted ? 1 : 0) : -1, UI.Red);
+    }
+
     void SetVolumeGlyph(float level, bool muted)
     {
         if (muteTile != null) SetTile(muteTile, muted ? 1 : 0, UI.Red);
@@ -2804,20 +2964,45 @@ class Island : Window
         netUp = UI.Text("", 11.2, UI.Dim, FontWeights.Normal);
         page.Children.Add(UI.At(GraphCard("Network", netDown, netUp, netGraph, true), 4));
 
-        var b = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
-        b.Children.Add(UI.Text("Battery", 12, UI.Dim, FontWeights.SemiBold));
-        battBig = UI.Text("–", 20, UI.Fg, FontWeights.Light);
-        b.Children.Add(battBig);
-        battStatus = UI.Text("", 12, UI.Dim, FontWeights.Normal);
-        b.Children.Add(battStatus);
-        var track = new Grid { Height = 8, Margin = new Thickness(0, 34, 0, 0) };
-        track.Children.Add(new Border { Background = UI.B("#2EFFFFFF"), CornerRadius = new CornerRadius(4) });
-        battFill = new Border { CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
-        track.Children.Add(battFill);
-        b.Children.Add(track);
-        var card = UI.Panel(b, new Thickness(12, 12, 12, 12));
-        page.Children.Add(UI.At(card, 6));
+        // Memory and battery share the last column: each is a level with a bar under it.
+        var levels = new Grid();
+        levels.RowDefinitions.Add(new RowDefinition { Height = UI.Star });
+        levels.RowDefinitions.Add(new RowDefinition { Height = UI.Px(8) });
+        levels.RowDefinitions.Add(new RowDefinition { Height = UI.Star });
+        ramBig = UI.Text("–", 18, UI.Fg, FontWeights.Light);
+        ramStatus = UI.Text("", 11.2, UI.Dim, FontWeights.Normal);
+        levels.Children.Add(UI.Row(LevelCard("Memory", ramBig, ramStatus, out ramFill), 0));
+        battBig = UI.Text("–", 18, UI.Fg, FontWeights.Light);
+        battStatus = UI.Text("", 11.2, UI.Dim, FontWeights.Normal);
+        levels.Children.Add(UI.Row(LevelCard("Battery", battBig, battStatus, out battFill), 2));
+        page.Children.Add(UI.At(levels, 6));
         return page;
+    }
+
+    Border LevelCard(string label, TextBlock value, TextBlock status, out Border fill)
+    {
+        var b = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+        b.Children.Add(UI.Text(label, 12, UI.Dim, FontWeights.SemiBold));
+        b.Children.Add(value);
+        b.Children.Add(status);
+        var track = new Grid { Height = 6, Margin = new Thickness(0, 7, 0, 0) };
+        track.Children.Add(new Border { Background = UI.B("#2EFFFFFF"), CornerRadius = new CornerRadius(3) });
+        fill = new Border { CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+        track.Children.Add(fill);
+        b.Children.Add(track);
+        return UI.Panel(b, new Thickness(12, 9, 12, 9));
+    }
+
+    // 16 GB with 9.8 GB in use -> "61%", "9.8 / 16.0 GB" and a bar 61% full (orange from 80%, red from 90%).
+    void UpdateMemory(ulong used, ulong total)
+    {
+        double share = (double)used / total;
+        ramBig.Text = Math.Round(share * 100) + "%";
+        ramStatus.Text = (used / 1073741824.0).ToString("0.0") + " / " + (total / 1073741824.0).ToString("0.0") + " GB";
+        ramFill.Background = share >= 0.9 ? UI.Red : share >= 0.8 ? UI.Orange : UI.Fg;
+        double full = Math.Max(0, ((FrameworkElement)ramFill.Parent).ActualWidth);
+        if (full <= 0) full = 80;
+        ramFill.BeginAnimation(WidthProperty, Anim(full * share, 600, Spring.Soft, 0));
     }
 
     Border GraphCard(string label, TextBlock value, TextBlock extra, Graph graph) { return GraphCard(label, value, extra, graph, false); }
@@ -2879,6 +3064,7 @@ class Island : Window
         UpdateRadioTiles();
         SetTile(nightTile, NightLight.State() == 1 ? 1 : 0, UI.Orange);
         SetTile(muteTile, volume.Available ? (volume.Muted ? 1 : 0) : -1, UI.Red);
+        UpdateMicTile();
         if (volume.Available)
         {
             volSlider.Value = volume.Level;
@@ -2921,8 +3107,11 @@ class Island : Window
             double cpu, gpu, down, up;
             int temp;
             sensors.Sample(out cpu, out gpu, out temp, out down, out up);
+            ulong memUsed, memTotal;
+            bool mem = Native.Memory(out memUsed, out memTotal);
             Ui(delegate
             {
+                if (mem) UpdateMemory(memUsed, memTotal);
                 if (down >= 0) { netGraph.Add(down); netDown.Text = "\u2193 " + Speed(down); netUp.Text = "\u2191 " + Speed(up); }
                 if (cpu >= 0) { cpuGraph.Add(cpu); cpuValue.Text = Math.Round(cpu) + "%"; }
                 if (gpu >= 0) { gpuGraph.Add(gpu); gpuValue.Text = Math.Round(gpu) + "%"; }
@@ -3953,6 +4142,34 @@ static class SelfTest
             say("Battery: " + ps.BatteryLifePercent + "% AC=" + ps.ACLineStatus + " WinRT status=" + report.Status);
         }
         catch (Exception ex) { say("Battery: FAILED " + ex.Message); }
+
+        ulong memUsed, memTotal;
+        if (Native.Memory(out memUsed, out memTotal))
+            say(string.Format("Memory: {0:0.0} GB of {1:0.0} GB in use ({2:0}%)", memUsed / 1073741824.0, memTotal / 1073741824.0, 100.0 * memUsed / memTotal));
+        else say("Memory: FAILED");
+
+        try
+        {
+            var mic = Volume.Microphone();
+            if (!mic.Init()) say("Microphone: no default recording device");
+            else
+            {
+                bool was = mic.Muted;
+                string line = "Microphone: muted=" + was;
+                if (Environment.GetCommandLineArgs().Contains("--micmute"))
+                {
+                    // Flip it, read it back, then put it back.
+                    mic.Muted = !was;
+                    Thread.Sleep(300);
+                    bool flipped = mic.Muted;
+                    mic.Muted = was;
+                    Thread.Sleep(300);    // Windows applies the change a moment later
+                    line += ", flipped to " + flipped + ", restored to " + mic.Muted;
+                }
+                say(line);
+            }
+        }
+        catch (Exception ex) { say("Microphone: FAILED " + ex.Message); }
 
         try
         {
