@@ -18,7 +18,7 @@ A thin glowing line sits at the top of your screen. Hover it and it grows into a
 
 You need Windows 11 (64-bit). No administrator rights are needed.
 
-1. **Download** [WinUltra.exe](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra.exe), a single file of about 240 KB. If your screen runs at 144 Hz or faster, you can get the smoother [WinUltra-HighFPS.exe](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra-HighFPS.exe) instead (see [Which file should I download?](#which-file-should-i-download)).
+1. **Download** [WinUltra.exe](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra.exe), a single file of about 240 KB. That is the right one for most people. If your PC is slow or old, or your screen runs at 144 Hz or faster, there are two other versions (see [Which file should I download?](#which-file-should-i-download)).
 2. **Put it in a folder you'll keep**, such as Documents. WinUltra runs from wherever it is and never copies itself anywhere, so its shortcuts point to that spot.
 3. **Double-click it.** If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway**. This appears because the app is new and not signed by a known publisher, not because anything is wrong (see the [FAQ](#faq)).
 4. **Choose what you want** in the setup window: starting when you sign in, a desktop shortcut, clipboard history, notification pop-ups, frosted glass, and a Caps Lock pop-up. Each one is explained, and you can change them any time from the tray icon.
@@ -26,16 +26,21 @@ You need Windows 11 (64-bit). No administrator rights are needed.
 
 ## Which file should I download?
 
-There are two files. They are the same app and have the same features. Only the animation smoothness differs.
+There are three files. They are the same app with the same features. Only the smoothness of the animations differs, and so does how hard they work the processor while the island is moving.
 
 | File | Animations | Pick it if |
 | --- | --- | --- |
-| **WinUltra.exe** | 60 frames per second | You're not sure, or your screen is 60 Hz. It works well on any PC and is the safer choice on older or slower ones. |
-| **WinUltra-HighFPS.exe** | 144 frames per second | Your screen runs at 144 Hz or faster and you want the island's animations as smooth as the screen allows. |
+| [**WinUltra.exe**](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra.exe) | 120 frames per second | You're not sure. This is the standard build and suits most PCs. |
+| [**WinUltra-HighFPS.exe**](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra-HighFPS.exe) | 144 frames per second | Your screen runs at 144 Hz or faster and your PC is fast. The smoothest, and the most work for the processor. |
+| [**WinUltra-LowFPS.exe**](https://github.com/Gxmi2006/WinUltra/raw/main/WinUltra-LowFPS.exe) | 60 frames per second | Your PC is slow or old, or you want the lightest option. The least work for the processor. |
 
-To check your screen, open **Settings → System → Display → Advanced display** and look at the refresh rate. On a 60 Hz screen the High FPS file looks the same as the normal one, so there's no reason to use it there. In our tests on a 144 Hz laptop, the two used about the same CPU while animating.
+The difference only shows while the island is animating (opening, closing, sliding between tabs). When it is closed, all three use almost nothing.
 
-Only run one of the two at a time.
+In a test on a 144 Hz laptop, with the island animating non-stop, the 60 fps build drew roughly 75 frames a second, the standard one about 90, and the High FPS one about 115, using about 12%, 17% and 25% of one processor core. Your numbers will differ.
+
+To check your screen, open **Settings → System → Display → Advanced display** and look at the refresh rate. On a 60 Hz screen the faster builds only waste effort, so the 60 fps file is the better pick there.
+
+Only run one of the three at a time.
 
 ## Highlights
 
@@ -143,7 +148,7 @@ The trim is skipped while the island is open, so opening it and switching tabs s
 You need only what ships with Windows 11 (the .NET Framework compiler `csc.exe`), plus the Windows SDK metadata file `Windows.winmd` (the build scripts expect SDK `10.0.26100.0`). No Visual Studio or NuGet packages.
 
 ```powershell
-.\Build.cmd    # builds WinUltra.exe (60 fps) and WinUltra-HighFPS.exe (144 fps)
+.\Build.cmd    # builds WinUltra.exe (120 fps), WinUltra-HighFPS.exe (144 fps) and WinUltra-LowFPS.exe (60 fps)
 ```
 
 If `WinUltra.ico` is missing, the script regenerates it with `MakeIcon.ps1`. Run `WinUltra.exe --selftest report.txt` to check media, volume, brightness, radios, sensors, notifications, and camera/microphone detection on your PC.
@@ -157,7 +162,7 @@ src/
   Setup.cs      the setup window and the Start-up and desktop shortcuts
 guide-images/   screenshots used in this README
 WinUltra.manifest   asks Windows for normal user rights only
-Build.cmd       builds WinUltra.exe and WinUltra-HighFPS.exe
+Build.cmd       builds WinUltra.exe, WinUltra-HighFPS.exe and WinUltra-LowFPS.exe
 MakeIcon.ps1    draws WinUltra.ico
 LICENSE         MIT License
 ```

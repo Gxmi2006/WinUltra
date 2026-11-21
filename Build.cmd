@@ -8,9 +8,14 @@ set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set WPF=%FW%\WPF
 set WINMD=C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd
 if not exist WinUltra.ico powershell -NoProfile -File MakeIcon.ps1
-rem Two builds: WinUltra.exe runs animations at 60 fps (works on any screen), WinUltra-HighFPS.exe at 144 fps.
-call :build WinUltra.exe FRIENDS
-call :build WinUltra-HighFPS.exe FRIENDS;HIGHFPS
+rem Three builds. They are the same app and differ only in how smooth the animations are:
+rem   WinUltra.exe          120 frames per second, the standard build
+rem   WinUltra-HighFPS.exe   144 frames per second, for 144 Hz and faster screens
+rem   WinUltra-LowFPS.exe     60 frames per second, for slower or older PCs
+rem The symbols are in quotes because cmd treats a bare semicolon as an argument separator.
+call :build WinUltra.exe "FRIENDS"
+call :build WinUltra-HighFPS.exe "FRIENDS;HIGHFPS"
+call :build WinUltra-LowFPS.exe "FRIENDS;LOWFPS"
 exit /b
 
 :build
