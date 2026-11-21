@@ -1290,7 +1290,12 @@ class Island : Window
     const double LineW = 124, LineH = 6, PillW = 236, PillH = 34, PopW = 340, PopH = 44, NoteW = 392, NoteH = 62;
     const double ExpW = 520, ExpH = 262, WinW = 580, Gap = 5, SmallWinH = 84, BigWinH = ExpH + 40;
     const int TabMedia = 0, TabControls = 1, TabStats = 2, TabClipboard = 3, TabShelf = 4, TabTimer = 5, TabCount = 6;
-    const int Fps = 120;    // this screen runs at 144 Hz
+    // Build.cmd makes two files: WinUltra.exe (60 fps, runs on any PC) and WinUltra-HighFPS.exe (144 fps, for 144 Hz+ screens).
+#if HIGHFPS
+    const int Fps = 144;
+#else
+    const int Fps = 60;
+#endif
     const string ClockGlyph = "";
 
     enum Mode { Collapsed, Popup, Expanded }

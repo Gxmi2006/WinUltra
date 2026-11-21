@@ -8,7 +8,14 @@ set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set WPF=%FW%\WPF
 set WINMD=C:\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.26100.0\Windows.winmd
 if not exist WinUltra.ico powershell -NoProfile -File MakeIcon.ps1
-"%FW%\csc.exe" /nologo /optimize+ /target:winexe /platform:x64 /define:FRIENDS /out:WinUltra.exe /win32icon:WinUltra.ico /win32manifest:WinUltra.manifest ^
+rem Two builds: WinUltra.exe runs animations at 60 fps (works on any screen), WinUltra-HighFPS.exe at 144 fps.
+call :build WinUltra.exe FRIENDS
+call :build WinUltra-HighFPS.exe FRIENDS;HIGHFPS
+exit /b
+
+:build
+rem %1 = output file, %2 = compile symbols
+"%FW%\csc.exe" /nologo /optimize+ /target:winexe /platform:x64 /define:%~2 /out:%~1 /win32icon:WinUltra.ico /win32manifest:WinUltra.manifest ^
  /r:"%WPF%\PresentationFramework.dll" /r:"%WPF%\PresentationCore.dll" /r:"%WPF%\WindowsBase.dll" /r:"%FW%\System.Xaml.dll" ^
  /r:"%FW%\System.Windows.Forms.dll" /r:"%FW%\System.Drawing.dll" ^
  /r:"%FW%\System.Management.dll" /r:"%FW%\System.Web.Extensions.dll" /r:"%FW%\System.IO.Compression.dll" /r:"%FW%\System.IO.Compression.FileSystem.dll" ^
